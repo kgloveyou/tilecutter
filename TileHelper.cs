@@ -5,16 +5,17 @@ using System.Text;
 
 namespace TileCutter
 {
-    public class TileHelper
+    public static class TileHelper
     {
         /// <summary>Available subdomains for tiles.</summary>
         private static readonly string[] OSM_SUB_DOMAINS = { "a", "b", "c" };
         /// <summary>Base URL used in GetTileUrl.</summary>
-        private const string OSM_BASE_URL = "http://{0}.tile.openstreetmap.org/{1}/{2}/{3}.png";
+        private const string OSM_BASE_URL_TEMPLATE_WITH_SUBDOMAIN = "http://{0}.tile.openstreetmap.org/{1}/{2}/{3}.png";
+        private const string OSM_BASE_URL_TEMPLATE = "http://tile.openstreetmap.org/{0}/{1}/{2}.png";
 
-        private double originShift = 2 * Math.PI * 6378137 / 2.0;
+        private static double originShift = 2 * Math.PI * 6378137 / 2.0;
 
-        public Coordinate<double> ConvertLatLonToMeters(double lat, double lon)
+        public static Coordinate<double> ConvertLatLonToMeters(double lat, double lon)
         {
             double x = lon * originShift / 180.0;
             double y = Math.Log(Math.Tan((90 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0);
@@ -23,7 +24,7 @@ namespace TileCutter
             return new Coordinate<double>() { X = x, Y = y };
         }
 
-        public Coordinate<double> ConvertMetersToLatLon(double x, double y)
+        public static Coordinate<double> ConvertMetersToLatLon(double x, double y)
         {
             double lon = (x / originShift) * 180.0;
             double lat = (y / originShift) * 180.0;
@@ -37,7 +38,7 @@ namespace TileCutter
         /// </summary>
         /// <param name="tileSize"></param>
         /// <returns></returns>
-        public double GetTileResolution(int tileSize = 256)
+        public static double GetTileResolution(int tileSize = 256)
         {
             return 2 * Math.PI * 6378137 / tileSize;
         }
@@ -48,12 +49,12 @@ namespace TileCutter
         /// <param name="zoom"></param>
         /// <param name="tileSize"></param>
         /// <returns></returns>
-        public double GetResolution(int zoom, int tileSize = 256)
+        public static double GetResolution(int zoom, int tileSize = 256)
         {
             return GetTileResolution(tileSize) / (Math.Pow(2, zoom));
         }
 
-        public Coordinate<double> ConvertMetersToPixels(double x, double y, int zoom, int tileSize = 256)
+        public static Coordinate<double> ConvertMetersToPixels(double x, double y, int zoom, int tileSize = 256)
         {
             double pixelResolution = GetResolution(zoom, tileSize);
             double px = (x + originShift) / pixelResolution;
@@ -61,7 +62,7 @@ namespace TileCutter
             return new Coordinate<double>() { X = px, Y = py };
         }
 
-        public Coordinate<double> ConvertPixelsToMeters(double px, double py, int zoom, int tileSize = 256)
+        public static Coordinate<double> ConvertPixelsToMeters(double px, double py, int zoom, int tileSize = 256)
         {
             double pixelResolution = GetResolution(zoom, tileSize);
             double x = px * pixelResolution - originShift;
@@ -69,34 +70,34 @@ namespace TileCutter
             return new Coordinate<double>() { X = x, Y = y };
         }
 
-        public Coordinate<int> ConvertPixelsToTile(double px, double py, int tileSize = 256)
+        public static Coordinate<int> ConvertPixelsToTile(double px, double py, int tileSize = 256)
         {
             int tx = (int) Math.Ceiling(px / ((float) tileSize)) -1;
             int ty = (int) Math.Ceiling(py / ((float)tileSize)) - 1;
             return new Coordinate<int>() { X = tx, Y = ty };
         }
 
-        public Coordinate<int> ConvertMetersToTile(double x, double y, int zoom, int tileSize = 256)
+        public static Coordinate<int> ConvertMetersToTile(double x, double y, int zoom, int tileSize = 256)
         {
             var pixelCoordinates = ConvertMetersToPixels(x, y, zoom, tileSize);
             return ConvertPixelsToTile(pixelCoordinates.X, pixelCoordinates.Y, tileSize);
         }
 
-        public Coordinate<int> ConvertLatLonToTile(double lat, double lon, int zoom, int tileSize = 256)
+        public static Coordinate<int> ConvertLatLonToTile(double lat, double lon, int zoom, int tileSize = 256)
         {
             var coords = ConvertLatLonToMeters(lat, lon);
             var pixelCoordinates = ConvertMetersToPixels(coords.X, coords.Y, zoom, tileSize);
             return ConvertPixelsToTile(pixelCoordinates.X, pixelCoordinates.Y, tileSize);
         }
 
-        public Bounds<double> GetTileBounds(int tx, int ty, int zoom, int tileSize = 256)
+        public static Bounds<double> GetTileBounds(int tx, int ty, int zoom, int tileSize = 256)
         {
             var min = ConvertPixelsToMeters(tx * tileSize, ty * tileSize, zoom, tileSize);
             var max = ConvertPixelsToMeters((tx + 1) * tileSize, (ty + 1) * tileSize, zoom);
             return new Bounds<double>() { XMin = min.X, YMin = min.Y, XMax = max.X, YMax = max.Y };
         }
 
-        public Bounds<double> GetTileLatLonBounds(int tx, int ty, int zoom, int tileSize = 256)
+        public static Bounds<double> GetTileLatLonBounds(int tx, int ty, int zoom, int tileSize = 256)
         {
             var bounds = GetTileBounds(tx, ty, zoom, tileSize);
             var min = ConvertMetersToLatLon(bounds.XMin, bounds.YMin);
@@ -104,7 +105,7 @@ namespace TileCutter
             return new Bounds<double>() { XMin = min.X, YMin = min.Y, XMax = max.X, YMax = max.Y };
         }
 
-        public IEnumerable<Coordinate<int>> GetTilesFromMeters(int zoomLevel, double minx, double miny, double maxx, double maxy)
+        public static IEnumerable<Coordinate<int>> GetTilesFromMeters(int zoomLevel, double minx, double miny, double maxx, double maxy)
         {
             var min = ConvertMetersToTile(minx, miny, zoomLevel);
             var max = ConvertMetersToTile(maxx, maxy, zoomLevel);
@@ -112,7 +113,7 @@ namespace TileCutter
             return GetTilesFromTileBounds(min.X, min.Y, max.X, max.Y);
         }
 
-        public IEnumerable<Coordinate<int>> GetTilesFromLatLon(int zoomLevel, double minx, double miny, double maxx, double maxy)
+        public static IEnumerable<Coordinate<int>> GetTilesFromLatLon(int zoomLevel, double minx, double miny, double maxx, double maxy)
         {
             var min = ConvertLatLonToTile(miny, minx, zoomLevel);
             var max = ConvertLatLonToTile(maxy, maxx, zoomLevel);
@@ -120,7 +121,7 @@ namespace TileCutter
             return GetTilesFromTileBounds(min.X, min.Y, max.X, max.Y);
         }
 
-        public IEnumerable<Coordinate<int>> GetTilesFromTileBounds(int tminx, int tminy, int tmaxx, int tmaxy)
+        public static IEnumerable<Coordinate<int>> GetTilesFromTileBounds(int tminx, int tminy, int tmaxx, int tmaxy)
         {
             var tileMinX = tminx < tmaxx ? tminx : tmaxx;
             var tileMaxX = tminx > tmaxx ? tminx : tmaxx;
@@ -136,10 +137,33 @@ namespace TileCutter
             }
         }
 
-        public string GetOSMTileUrlAddress(int level, int row, int col, string[] subDomains = null, string baseUrl = null)
+        public static string GetDefaultOSMTileUrlAddress(TileCoordinate tile)
         {
-            subDomains = subDomains ?? OSM_SUB_DOMAINS;
-            baseUrl = baseUrl ?? OSM_BASE_URL;
+            return GetOSMTileUrlAddress(OSM_BASE_URL_TEMPLATE, tile.Level, tile.Row, tile.Column);
+        }
+
+        public static string GetOSMTileUrlAddress(string baseUrl, TileCoordinate tile)
+        {
+            return GetOSMTileUrlAddress(baseUrl, tile.Level, tile.Row, tile.Column);
+        }
+
+        public static string GetOSMTileUrlAddress(string baseUrl, int level, int row, int col)
+        {
+            return baseUrl + string.Format("/{0}/{1}/{2}.png", level, col, row);
+        }
+
+        public static string GetDefaultOSMTileUrlAddressWithSubdomains(TileCoordinate tile)
+        {
+            return GetOSMTileUrlAddressWithSubdomains(OSM_BASE_URL_TEMPLATE_WITH_SUBDOMAIN, OSM_SUB_DOMAINS, tile.Level, tile.Row, tile.Column);
+        }
+
+        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, string[] subDomains, TileCoordinate tile)
+        {
+            return GetOSMTileUrlAddressWithSubdomains(baseUrl, subDomains, tile.Level, tile.Row, tile.Column);
+        }
+
+        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, string[] subDomains, int level, int row, int col)
+        {
             // Select a subdomain based on level/row/column so that it will always
             // be the same for a specific tile. Multiple subdomains allows the user
             // to load more tiles simultanously. To take advantage of the browser cache
@@ -149,7 +173,12 @@ namespace TileCutter
             return string.Format(baseUrl, subdomain, level, col, row);
         }
 
-        public string GetAGSDynamicUrlAddress(int level, int row, int col, string baseUrl = null)
+        public static string GetAGSDynamicUrlAddress(string baseUrl, TileCoordinate tile)
+        {
+            return GetAGSDynamicUrlAddress(baseUrl, tile.Level, tile.Row, tile.Column);
+        }
+
+        public static string GetAGSDynamicUrlAddress(string baseUrl, int level, int row, int col)
         {
             if (string.IsNullOrEmpty(baseUrl))
                 throw new ArgumentNullException("baseUrl", "The base url for the ArcGIS Dynamic Service cannot be NULL or empty");
@@ -159,12 +188,12 @@ namespace TileCutter
             return string.Format(requestUrl, extent.XMin, extent.YMin, extent.XMax, extent.YMax);
         }
 
-        public Coordinate<int> ConvertTMSTileCoordinateToGoogleTileCoordinate(int zoomLevel, int tx, int ty)
+        public static Coordinate<int> ConvertTMSTileCoordinateToGoogleTileCoordinate(int zoomLevel, int tx, int ty)
         {
             return new Coordinate<int>(){X = tx, Y = (int)((Math.Pow(2, zoomLevel) - 1) - ty)};
         }
 
-        public string ConvertTMSTileCoordinateToQuadKey(int zoomLevel, int tx, int ty)
+        public static string ConvertTMSTileCoordinateToQuadKey(int zoomLevel, int tx, int ty)
         {
             string QuadKey = "";
             ty = (int)((Math.Pow(2, zoomLevel) - 1) - ty);

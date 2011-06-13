@@ -12,8 +12,6 @@ namespace TileCutter
 {
     class Program
     {
-        private static TileHelper helper = new TileHelper();
-
         static void Main(string[] args)
         {
             string localCacheDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -23,15 +21,18 @@ namespace TileCutter
             double miny = 35.978006;
             double maxx = -88.989258;
             double maxy = 40.563895;
-            string defaultMapServiceUrl = "http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Demographics/ESRI_Census_USA/MapServer";
+            string mapServiceUrl = "http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Demographics/ESRI_Census_USA/MapServer";
             int maxDegreeOfParallelism = 10;
             bool replaceExistingCacheDB = true;
             bool showHelp = false;
+            string mapServiceType = "osm";
+            Func<TileCoordinate, string> getTileUrl = TileHelper.GetDefaultOSMTileUrlAddressWithSubdomains;
 
             var options = new OptionSet()
             {
                 {"h|help", "Show this message and exits", h => showHelp = h != null},
-                {"m|mapservice=", "Url of the ArcGIS Dynamic Map Service to be cached", m => defaultMapServiceUrl = m},
+                {"t|type", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
+                {"m|mapservice=", "Url of the Map Service to be cached", m => mapServiceUrl = m},
                 {"o|output=", "Location on disk where the tile cache will be stored", o => localCacheDirectory = o},
                 {"z|minz=", "Minimum zoom scale at which to begin caching", z => int.TryParse(z, out minz)},
                 {"Z|maxz=", "Maximum zoom scale at which to end caching", Z => int.TryParse(Z, out maxz)},
@@ -49,6 +50,8 @@ namespace TileCutter
                 ShowHelp(options);
                 return;
             }
+
+            getTileUrl = GetTileUrlDelegateByMapServiceType(mapServiceType, mapServiceUrl);
 
             //Get the sqlite db file location from the config
             //if not provided, default to executing assembly location
@@ -103,15 +106,17 @@ namespace TileCutter
             var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
             ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism};
             Parallel.ForEach(tiles, parallelOptions, (tile) => {
-                string tileUrl = helper.GetAGSDynamicUrlAddress(tile.Level, tile.Row, tile.Column, defaultMapServiceUrl);
+                string tileUrl = TileHelper.GetAGSDynamicUrlAddress(mapServiceUrl, tile.Level, tile.Row, tile.Column);
+                byte[] image;
                 WebClient client = new WebClient();
                 try
                 {
-                    byte[] image = client.DownloadData(tileUrl);
+                    image = client.DownloadData(tileUrl);
                 }
                 catch (WebException ex)
                 {
-                    Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2}", tile.Level, tile.Row, tile.Column));
+                    Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2} - {3}.", tile.Level, tile.Row, tile.Column, ex.Message));
+                    return;
                 }
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
@@ -131,11 +136,21 @@ namespace TileCutter
             Console.WriteLine("All Done !!!");
         }
 
+        private static Func<TileCoordinate, string> GetTileUrlDelegateByMapServiceType(string mapServiceType, string mapServiceUrl)
+        {
+            if (mapServiceType == "agsd")
+                return ((Func<string, TileCoordinate, string>)TileHelper.GetAGSDynamicUrlAddress).Partial(mapServiceUrl);
+            else if (mapServiceType == "osm")
+                return ((Func<string, TileCoordinate, string>)TileHelper.GetOSMTileUrlAddress).Partial(mapServiceUrl);
+
+            throw new NotSupportedException(string.Format("The map service type '{0}' is not supported.", mapServiceType));
+        }
+
         static IEnumerable<TileCoordinate> GetTiles(int minz, int maxz, double minx, double miny, double maxx, double maxy)
         {
             for (int i = minz; i <= maxz; i++)
             {
-                var tiles = helper.GetTilesFromLatLon(i, minx, miny, maxx, maxy);
+                var tiles = TileHelper.GetTilesFromLatLon(i, minx, miny, maxx, maxy);
                 foreach (var coord in tiles)
                 {
                     yield return new TileCoordinate() { Level = i, Column = coord.X, Row = coord.Y };

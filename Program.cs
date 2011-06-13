@@ -26,21 +26,29 @@ namespace TileCutter
             string defaultMapServiceUrl = "http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Demographics/ESRI_Census_USA/MapServer";
             int maxDegreeOfParallelism = 10;
             bool replaceExistingCacheDB = true;
+            bool showHelp = false;
 
             var options = new OptionSet()
             {
-                {"m=", "Url of the ArcGIS Dynamic Map Service to be cached", m => defaultMapServiceUrl = m},
-                {"o=", "Location on disk where the tile cache will be stored", o => localCacheDirectory = o},
-                {"z=", "Minimum zoom scale at which to begin caching", z => int.TryParse(z, out minz)},
-                {"Z=", "Maximum zoom scale at which to end caching", Z => int.TryParse(Z, out maxz)},
-                {"x=", "Minimum X coordinate value of the extent to cache", x => double.TryParse(x, out minx)},
-                {"y=", "Minimum Y coordinate value of the extent to cache", y => double.TryParse(y, out miny)},
-                {"X=", "Maximum X coordinate value of the extent to cache", X => double.TryParse(X, out maxx)},
-                {"Y=", "Maximum Y coordinate value of the extent to cache", Y => double.TryParse(Y, out maxy)},
-                {"p=", "Limits the number of concurrent operations run by TileCutter", p => int.TryParse(p, out maxDegreeOfParallelism)},
-                {"r=", "Delete existing tile cache MBTiles database if already present and create a new one.", r => Boolean.TryParse(r, out replaceExistingCacheDB)}
+                {"h|help", "Show this message and exits", h => showHelp = h != null},
+                {"m|mapservice=", "Url of the ArcGIS Dynamic Map Service to be cached", m => defaultMapServiceUrl = m},
+                {"o|output=", "Location on disk where the tile cache will be stored", o => localCacheDirectory = o},
+                {"z|minz=", "Minimum zoom scale at which to begin caching", z => int.TryParse(z, out minz)},
+                {"Z|maxz=", "Maximum zoom scale at which to end caching", Z => int.TryParse(Z, out maxz)},
+                {"x|minx=", "Minimum X coordinate value of the extent to cache", x => double.TryParse(x, out minx)},
+                {"y|miny=", "Minimum Y coordinate value of the extent to cache", y => double.TryParse(y, out miny)},
+                {"X|maxx=", "Maximum X coordinate value of the extent to cache", X => double.TryParse(X, out maxx)},
+                {"Y|maxy=", "Maximum Y coordinate value of the extent to cache", Y => double.TryParse(Y, out maxy)},
+                {"p|parallelops=", "Limits the number of concurrent operations run by TileCutter", p => int.TryParse(p, out maxDegreeOfParallelism)},
+                {"r|replace=", "Delete existing tile cache MBTiles database if already present and create a new one.", r => Boolean.TryParse(r, out replaceExistingCacheDB)}
             };
             options.Parse(args);
+
+            if (showHelp)
+            {
+                ShowHelp(options);
+                return;
+            }
 
             //Get the sqlite db file location from the config
             //if not provided, default to executing assembly location
@@ -126,6 +134,16 @@ namespace TileCutter
                     yield return new TileCoordinate() { Level = i, Column = coord.X, Row = coord.Y };
                 }
             }
+        }
+
+        static void ShowHelp(OptionSet p)
+        {
+            Console.WriteLine("Usage: greet [OPTIONS]+ message");
+            Console.WriteLine("Greet a list of individuals with an optional message.");
+            Console.WriteLine("If no message is specified, a generic greeting is used.");
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            p.WriteOptionDescriptions(Console.Out);
         }
     }
 }

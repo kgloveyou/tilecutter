@@ -105,7 +105,14 @@ namespace TileCutter
             Parallel.ForEach(tiles, parallelOptions, (tile) => {
                 string tileUrl = helper.GetAGSDynamicUrlAddress(tile.Level, tile.Row, tile.Column, defaultMapServiceUrl);
                 WebClient client = new WebClient();
-                byte[] image = client.DownloadData(tileUrl);
+                try
+                {
+                    byte[] image = client.DownloadData(tileUrl);
+                }
+                catch (WebException ex)
+                {
+                    Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2}", tile.Level, tile.Row, tile.Column));
+                }
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();

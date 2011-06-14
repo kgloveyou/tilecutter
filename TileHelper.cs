@@ -8,10 +8,10 @@ namespace TileCutter
     public static class TileHelper
     {
         /// <summary>Available subdomains for tiles.</summary>
-        private static readonly string[] OSM_SUB_DOMAINS = { "a", "b", "c" };
+        public static readonly string[] OSM_SUB_DOMAINS = { "a", "b", "c" };
         /// <summary>Base URL used in GetTileUrl.</summary>
-        private const string OSM_BASE_URL_TEMPLATE_WITH_SUBDOMAIN = "http://{0}.tile.openstreetmap.org/{1}/{2}/{3}.png";
-        private const string OSM_BASE_URL_TEMPLATE = "http://tile.openstreetmap.org/{0}/{1}/{2}.png";
+        public const string OSM_BASE_URL_TEMPLATE_WITH_SUBDOMAIN = "http://{0}.tile.openstreetmap.org/{1}/{2}/{3}.png";
+        public const string OSM_BASE_URL_TEMPLATE = "http://tile.openstreetmap.org/{0}/{1}/{2}.png";
 
         private static double originShift = 2 * Math.PI * 6378137 / 2.0;
 
@@ -137,11 +137,6 @@ namespace TileCutter
             }
         }
 
-        public static string GetDefaultOSMTileUrlAddress(TileCoordinate tile)
-        {
-            return GetOSMTileUrlAddress(OSM_BASE_URL_TEMPLATE, tile.Level, tile.Row, tile.Column);
-        }
-
         public static string GetOSMTileUrlAddress(string baseUrl, TileCoordinate tile)
         {
             return GetOSMTileUrlAddress(baseUrl, tile.Level, tile.Row, tile.Column);
@@ -152,24 +147,19 @@ namespace TileCutter
             return baseUrl + string.Format("/{0}/{1}/{2}.png", level, col, row);
         }
 
-        public static string GetDefaultOSMTileUrlAddressWithSubdomains(TileCoordinate tile)
-        {
-            return GetOSMTileUrlAddressWithSubdomains(OSM_BASE_URL_TEMPLATE_WITH_SUBDOMAIN, OSM_SUB_DOMAINS, tile.Level, tile.Row, tile.Column);
-        }
-
-        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, string[] subDomains, TileCoordinate tile)
+        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, List<string> subDomains, TileCoordinate tile)
         {
             return GetOSMTileUrlAddressWithSubdomains(baseUrl, subDomains, tile.Level, tile.Row, tile.Column);
         }
 
-        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, string[] subDomains, int level, int row, int col)
+        public static string GetOSMTileUrlAddressWithSubdomains(string baseUrl, List<string> subDomains, int level, int row, int col)
         {
             // Select a subdomain based on level/row/column so that it will always
             // be the same for a specific tile. Multiple subdomains allows the user
             // to load more tiles simultanously. To take advantage of the browser cache
             // the following expression also makes sure that a specific tile will always 
             // hit the same subdomain.
-            string subdomain = subDomains[(level + col + row) % subDomains.Length];
+            string subdomain = subDomains[(level + col + row) % subDomains.Count];
             return string.Format(baseUrl, subdomain, level, col, row);
         }
 

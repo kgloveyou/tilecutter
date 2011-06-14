@@ -26,13 +26,17 @@ namespace TileCutter
             bool replaceExistingCacheDB = true;
             bool showHelp = false;
             string mapServiceType = "osm";
-            Func<TileCoordinate, string> getTileUrl = TileHelper.GetDefaultOSMTileUrlAddressWithSubdomains;
+            string settings = string.Empty;
+            ITileUrlSource tileSource = new OSMTileUrlSource() {
+                MapServiceUrl = TileHelper.OSM_BASE_URL_TEMPLATE,
+            };
 
             var options = new OptionSet()
             {
-                {"h|help", "Show this message and exits", h => showHelp = h != null},
-                {"t|type", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
+                {"h|help=", "Show this message and exits", h => showHelp = h != null},
+                {"t|type=", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
                 {"m|mapservice=", "Url of the Map Service to be cached", m => mapServiceUrl = m},
+                {"s|settings=", "Extra settings needed by the type of map service being used", s => settings = s},
                 {"o|output=", "Location on disk where the tile cache will be stored", o => localCacheDirectory = o},
                 {"z|minz=", "Minimum zoom scale at which to begin caching", z => int.TryParse(z, out minz)},
                 {"Z|maxz=", "Maximum zoom scale at which to end caching", Z => int.TryParse(Z, out maxz)},
@@ -51,7 +55,8 @@ namespace TileCutter
                 return;
             }
 
-            getTileUrl = GetTileUrlDelegateByMapServiceType(mapServiceType, mapServiceUrl);
+            if(!string.IsNullOrEmpty(mapServiceType))
+                tileSource = GetTileSource(mapServiceType, mapServiceUrl, settings);
 
             //Get the sqlite db file location from the config
             //if not provided, default to executing assembly location
@@ -106,12 +111,17 @@ namespace TileCutter
             var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
             ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism};
             Parallel.ForEach(tiles, parallelOptions, (tile) => {
-                string tileUrl = TileHelper.GetAGSDynamicUrlAddress(mapServiceUrl, tile.Level, tile.Row, tile.Column);
+                string tileUrl = tileSource.GetTileUrl(tile);
                 byte[] image;
                 WebClient client = new WebClient();
                 try
                 {
                     image = client.DownloadData(tileUrl);
+                    FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
+                    fs.Write(image, 0, image.Length);
+                    fs.Flush();
+                    fs.Close();
+                    fs.Dispose();
                 }
                 catch (WebException ex)
                 {
@@ -136,13 +146,13 @@ namespace TileCutter
             Console.WriteLine("All Done !!!");
         }
 
-        private static Func<TileCoordinate, string> GetTileUrlDelegateByMapServiceType(string mapServiceType, string mapServiceUrl)
+        private static ITileUrlSource GetTileSource(string mapServiceType, string mapServiceUrl, string settings)
         {
-            if (mapServiceType == "agsd")
-                return ((Func<string, TileCoordinate, string>)TileHelper.GetAGSDynamicUrlAddress).Partial(mapServiceUrl);
-            else if (mapServiceType == "osm")
-                return ((Func<string, TileCoordinate, string>)TileHelper.GetOSMTileUrlAddress).Partial(mapServiceUrl);
-
+            string type = mapServiceType.ToLower();
+            if (type == "osm")
+                return new OSMTileUrlSource() { MapServiceUrl = mapServiceUrl };
+            else if (type == "agsd")
+                return new AGSDynamicTileUrlSource() { MapServiceUrl = mapServiceUrl };
             throw new NotSupportedException(string.Format("The map service type '{0}' is not supported.", mapServiceType));
         }
 

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Collections.Specialized;
 
 namespace TileCutter
 {
@@ -183,6 +184,11 @@ namespace TileCutter
             return new Coordinate<int>(){X = tx, Y = (int)((Math.Pow(2, zoomLevel) - 1) - ty)};
         }
 
+        public static Coordinate<int> ConvertGoogleTileCoordinateToTMSTileCoordinate(int zoomLevel, int tx, int ty)
+        {
+            return new Coordinate<int>() { X = tx, Y = (int)((Math.Pow(2, zoomLevel) - 1) - ty) };
+        }
+
         public static string ConvertTMSTileCoordinateToQuadKey(int zoomLevel, int tx, int ty)
         {
             string QuadKey = "";
@@ -198,6 +204,74 @@ namespace TileCutter
                 QuadKey += digit.ToString();
             }
             return QuadKey;
+        }
+
+        public const string WMS_VERSION = "VERSION";
+        public const string WMS_VERSION_1_1_1 = "1.1.1";
+        public const string WMS_VERSION_1_3_0 = "1.3.0";
+        public const string WMS_REQUEST = "REQUEST";
+        public const string WMS_SRS = "SRS";
+        public const string WMS_CRS = "CRS";
+        public const string WMS_BBOX = "BBOX";
+        public const string WMS_WIDTH = "WIDTH";
+        public const string WMS_HEIGHT = "HEIGHT";
+        public const string WMS_LAYERS = "LAYERS";
+        public const string WMS_STYLES = "STYLES";
+        public const string WMS_FORMAT = "FORMAT";
+        public const string WMS_BGCOLOR = "BGCOLOR";
+        public const string WMS_TRANSPARENT = "TRANSPARENT";
+
+        public static string GetWMS1_1_1UrlAddress(string MapServiceUrl, NameValueCollection dict, TileCoordinate tileCoordinate)
+        {
+            return GetWMS1_1_1UrlAddress(MapServiceUrl, dict, tileCoordinate.Level, tileCoordinate.Row, tileCoordinate.Column);
+        }
+
+        public static string GetWMS1_1_1UrlAddress(string MapServiceUrl, NameValueCollection dict, int level, int row, int col)
+        {
+            return GetWMSUrlAddress(WMS_VERSION_1_1_1, MapServiceUrl, dict, level, row, col);
+        }
+
+        public static string GetWMS1_3_0UrlAddress(string MapServiceUrl, NameValueCollection dict, TileCoordinate tileCoordinate)
+        {
+            return GetWMS1_3_0UrlAddress(MapServiceUrl, dict, tileCoordinate.Level, tileCoordinate.Row, tileCoordinate.Column);
+        }
+
+        public static string GetWMS1_3_0UrlAddress(string MapServiceUrl, NameValueCollection dict, int level, int row, int col)
+        {
+            return GetWMSUrlAddress(WMS_VERSION_1_3_0, MapServiceUrl, dict, level, row, col);
+        }
+
+        public static string GetWMSUrlAddress(string wmsVersion, string MapServiceUrl, NameValueCollection dict, TileCoordinate tileCoordinate)
+        {
+            return GetWMSUrlAddress(wmsVersion, MapServiceUrl, dict, tileCoordinate.Level, tileCoordinate.Row, tileCoordinate.Column);
+        }
+
+        public static string GetWMSUrlAddress(string wmsVersion, string MapServiceUrl, NameValueCollection dict, int level, int row, int col)
+        {
+            if (string.IsNullOrEmpty(MapServiceUrl))
+                throw new ArgumentNullException("MapServiceUrl", "The base url for the WMS Service version 1.1.1 cannot be NULL or empty");
+
+            var extent = GetTileLatLonBounds(col, row, level, tileSize: 256);
+            UriBuilder builder = new UriBuilder(MapServiceUrl);
+            NameValueCollection query = new NameValueCollection(dict);
+            query[WMS_WIDTH] = "256";
+            query[WMS_HEIGHT] = "256";
+            query[WMS_VERSION] = wmsVersion;
+            if (wmsVersion == WMS_VERSION_1_1_1)
+            {
+                query[WMS_BBOX] = string.Format("{0},{1},{2},{3}", extent.XMin, extent.YMin, extent.XMax, extent.YMax);
+                query.Remove(WMS_CRS);
+                query[WMS_SRS] = "EPSG:4326";
+            }
+            else if (wmsVersion == WMS_VERSION_1_3_0)
+            {
+                query[WMS_BBOX] = string.Format("{1},{0},{3},{2}", extent.XMin, extent.YMin, extent.XMax, extent.YMax);
+                query.Remove(WMS_SRS);
+                query[WMS_CRS] = "EPSG:4326";
+            }
+            builder.Query = query.ToQueryString();
+
+            return builder.ToString();
         }
     }
 }

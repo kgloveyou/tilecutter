@@ -117,11 +117,11 @@ namespace TileCutter
                 try
                 {
                     image = client.DownloadData(tileUrl);
-                    FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
-                    fs.Write(image, 0, image.Length);
-                    fs.Flush();
-                    fs.Close();
-                    fs.Dispose();
+                    //FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
+                    //fs.Write(image, 0, image.Length);
+                    //fs.Flush();
+                    //fs.Close();
+                    //fs.Dispose();
                 }
                 catch (WebException ex)
                 {

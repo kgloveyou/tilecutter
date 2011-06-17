@@ -152,17 +152,22 @@ namespace TileCutter
             if (type == "osm")
                 return new OSMTileUrlSource() { MapServiceUrl = mapServiceUrl };
             else if (type == "agsd")
-                return new AGSDynamicTileUrlSource() { MapServiceUrl = mapServiceUrl };
+                return new AGSDynamicTileUrlSource() { 
+                    MapServiceUrl = mapServiceUrl,
+                    QueryStringValues = settings.ParseQueryString()
+                };
             else if (type == "wms1.1.1")
                 return new WMSTileUrlSource() {
                     WMSVersion = TileHelper.WMS_VERSION_1_1_1,
-                    MapServiceUrl = mapServiceUrl
+                    MapServiceUrl = mapServiceUrl,
+                    QueryStringValues = settings.ParseQueryString()
                 };
             else if (type == "wms1.3.0")
                 return new WMSTileUrlSource()
                 {
                     WMSVersion = TileHelper.WMS_VERSION_1_3_0,
-                    MapServiceUrl = mapServiceUrl
+                    MapServiceUrl = mapServiceUrl,
+                    QueryStringValues = settings.ParseQueryString()
                 };
 
             throw new NotSupportedException(string.Format("The map service type '{0}' is not supported.", mapServiceType));

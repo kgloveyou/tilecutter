@@ -164,19 +164,41 @@ namespace TileCutter
             return string.Format(baseUrl, subdomain, level, col, row);
         }
 
-        public static string GetAGSDynamicUrlAddress(string baseUrl, TileCoordinate tile)
+        public const string AGS_BBOX = "bbox";
+        public const string AGS_BBOXSR = "bboxSR";
+        public const string AGS_SIZE = "size";
+        public const string AGS_IMAGESR = "imageSR";
+        public const string AGS_LAYERS = "layers";
+        public const string AGS_LAYERDEFS = "layerdefs";
+        public const string AGS_FORMAT = "format";
+        public const string AGS_TRANSPARENT = "transparent";
+        public const string AGS_DPI = "dpi";
+        public const string AGS_TIME = "time";
+        public const string AGS_LAYERTIMEOPTIONS = "layerTimeOptions";
+        public const string AGS_F = "f";
+        public static string GetAGSDynamicUrlAddress(string baseUrl, NameValueCollection dict, TileCoordinate tile)
         {
-            return GetAGSDynamicUrlAddress(baseUrl, tile.Level, tile.Row, tile.Column);
+            return GetAGSDynamicUrlAddress(baseUrl, dict, tile.Level, tile.Row, tile.Column);
         }
 
-        public static string GetAGSDynamicUrlAddress(string baseUrl, int level, int row, int col)
+        public static string GetAGSDynamicUrlAddress(string baseUrl, NameValueCollection dict, int level, int row, int col)
         {
             if (string.IsNullOrEmpty(baseUrl))
                 throw new ArgumentNullException("baseUrl", "The base url for the ArcGIS Dynamic Service cannot be NULL or empty");
 
-            string requestUrl = baseUrl + "/export?bbox={0},{1},{2},{3}&bboxSR=4326&layers=&layerdefs=&size=256%2C256&imageSR=&format=png&transparent=true&dpi=&time=&layerTimeOptions=&f=image";
+            Uri requestUrl = new Uri(new Uri(baseUrl + "/"), "export");
+            UriBuilder builder = new UriBuilder(requestUrl);
+            
             var extent = GetTileLatLonBounds(col, row, level, tileSize: 256);
-            return string.Format(requestUrl, extent.XMin, extent.YMin, extent.XMax, extent.YMax);
+            string bbox = string.Format("{0},{1},{2},{3}", extent.XMin, extent.YMin, extent.XMax, extent.YMax);
+
+            dict[AGS_BBOX] = bbox;
+            dict[AGS_BBOXSR] = "4326";
+            dict[AGS_SIZE] = "256,256";
+            dict[AGS_IMAGESR] = "4326";
+            if (dict != null)
+                builder.Query = dict.ToQueryString();
+            return builder.ToString();
         }
 
         public static Coordinate<int> ConvertTMSTileCoordinateToGoogleTileCoordinate(int zoomLevel, int tx, int ty)

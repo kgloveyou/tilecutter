@@ -14,10 +14,38 @@ namespace TileCutter
     public class AGSDynamicTileUrlSource : ITileUrlSource
     {
         public string MapServiceUrl { get; set; }
+        private NameValueCollection DefaultQueryStringValues { get; set; }
+        public NameValueCollection QueryStringValues { get; set; }
+
+        public AGSDynamicTileUrlSource()
+        {
+            DefaultQueryStringValues = new NameValueCollection();
+            DefaultQueryStringValues.Add(TileHelper.AGS_BBOX, "-115,20,-70,65");
+            DefaultQueryStringValues.Add(TileHelper.AGS_BBOXSR, "4326");
+            DefaultQueryStringValues.Add(TileHelper .AGS_LAYERS, "");
+            DefaultQueryStringValues.Add(TileHelper.AGS_LAYERDEFS, "");
+            DefaultQueryStringValues.Add(TileHelper.AGS_SIZE, "256,256");
+            DefaultQueryStringValues.Add(TileHelper.AGS_IMAGESR, "4326");
+            DefaultQueryStringValues.Add(TileHelper.AGS_FORMAT, "png");
+            DefaultQueryStringValues.Add(TileHelper.AGS_TRANSPARENT, "true");
+            DefaultQueryStringValues.Add(TileHelper.AGS_DPI, "");
+            DefaultQueryStringValues.Add(TileHelper.AGS_TIME, "");
+            DefaultQueryStringValues.Add(TileHelper.AGS_LAYERTIMEOPTIONS, "");
+            DefaultQueryStringValues.Add(TileHelper.AGS_F, "image");
+
+            QueryStringValues = new NameValueCollection();
+        }
 
         public string GetTileUrl(TileCoordinate tile)
         {
-            return TileHelper.GetAGSDynamicUrlAddress(MapServiceUrl, new TileCoordinate()
+            //combine the user supplied values & defaults and override defaults
+            NameValueCollection dict = new NameValueCollection();
+            foreach (string item in DefaultQueryStringValues)
+                dict[item] = DefaultQueryStringValues[item];
+            foreach (string item in QueryStringValues)
+                dict[item] = QueryStringValues[item];
+
+            return TileHelper.GetAGSDynamicUrlAddress(MapServiceUrl, dict , new TileCoordinate()
             {
                 Level = tile.Level,
                 Column = tile.Column,
@@ -30,7 +58,7 @@ namespace TileCutter
     {
         public string WMSVersion { get; set; }
         public string MapServiceUrl { get; set; }
-        public NameValueCollection DefaultQueryStringValues { get; set; }
+        private NameValueCollection DefaultQueryStringValues { get; set; }
         public NameValueCollection QueryStringValues { get; set; }
 
         public WMSTileUrlSource():this(TileHelper.WMS_VERSION_1_1_1)

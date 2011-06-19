@@ -91,18 +91,32 @@ namespace TileCutter
                     });
                 }
 
-                //Check if the 'tiles' table exists, if not create it
-                rows = connection.GetSchema("Tables").Select("Table_Name = 'tiles'");
+                //Check if the 'images' table exists, if not create it
+                rows = connection.GetSchema("Tables").Select("Table_Name = 'images'");
                 if (!rows.Any())
                 {
                     var command = connection.CreateCommand();
-                    command.CommandText = "CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);";
+                    command.CommandText = "CREATE TABLE [images] ([tile_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_data] BLOB  NULL, [tile_md5hash] VARCHAR(256)  UNIQUE NOT NULL);";
+                    command.ExecuteNonQuery();
+                    command = connection.CreateCommand();
+                    command.CommandText = "CREATE UNIQUE INDEX images_hash on images (tile_md5hash)";
+                    command.ExecuteNonQuery();
+                }
+
+                //Check if the 'map' table exists, if not create it
+                rows = connection.GetSchema("Tables").Select("Table_Name = 'map'");
+                if (!rows.Any())
+                {
+                    var command = connection.CreateCommand();
+                    command.CommandText = "CREATE TABLE [map] ([map_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_id] INTEGER  NOT NULL, [zoom_level] INTEGER  NOT NULL, [tile_row] INTEGER  NOT NULL, [tile_column] INTEGER  NOT NULL);";
                     command.ExecuteNonQuery();
                 }
             }
 
-            //prepare insert tile sql template
-            string insertTileSqlTemplate = "INSERT INTO tiles(zoom_level, tile_column, tile_row, tile_data) values(@zoom, @col, @row, @data)";
+            //prepare insert tile image template
+            string insertTileImageSqlTemplate = "INSERT INTO [images]([tile_data], [tile_md5hash]) values(@data, @hash)";
+            //prepare insert tile map template
+            string insertTileMapSqlTemplate = "INSERT INTO map(zoom_level, tile_column, tile_row, tile_id) values(@zoom, @col, @row, @id)";
 
             if (!Directory.Exists(localCacheDirectory))
                 Directory.CreateDirectory(localCacheDirectory);
@@ -113,10 +127,12 @@ namespace TileCutter
             Parallel.ForEach(tiles, parallelOptions, (tile) => {
                 string tileUrl = tileSource.GetTileUrl(tile);
                 byte[] image;
+                string hash;
                 WebClient client = new WebClient();
                 try
                 {
                     image = client.DownloadData(tileUrl);
+                    hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(image));
                     //FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
                     //fs.Write(image, 0, image.Length);
                     //fs.Flush();
@@ -131,7 +147,29 @@ namespace TileCutter
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();
-                    connection.Execute(insertTileSqlTemplate, new { zoom = tile.Level, col = tile.Column, row = tile.Row, data = image });
+
+                    var command = connection.CreateCommand();
+                    command.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
+                    command.Parameters.Add(new SQLiteParameter("hash", hash));
+                    object tileObj = command.ExecuteScalar();
+                    int tileid = -1;
+                    if (tileObj != null)
+                        int.TryParse(tileObj.ToString(), out tileid);
+
+                    if (tileid == -1)
+                    {
+                        tileid = connection.Execute(insertTileImageSqlTemplate, new
+                        {
+                            hash = hash,
+                            data = image
+                        });
+                    }
+                    connection.Execute(insertTileMapSqlTemplate, new 
+                    { 
+                        zoom = tile.Level, 
+                        col = tile.Column, 
+                        row = tile.Row, 
+                        id = tileid });
                 }
                 client.Dispose();
                 Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
@@ -140,7 +178,8 @@ namespace TileCutter
             using (SQLiteConnection connection = new SQLiteConnection(connectionString))
             {
                 connection.Open();
-                connection.Execute("CREATE UNIQUE INDEX map_index on tiles (zoom_level, tile_column, tile_row)");
+                connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
+                connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
                 connection.Close();
             }
             Console.WriteLine("All Done !!!");
@@ -196,3 +235,4 @@ namespace TileCutter
         }
     }
 }
+/*-z=7 -Z=10 -x=-95.844727 -y=35.978006 -X=-88.989258 -Y=40.563895 -o="C:\LocalCache" -t=agsd -m="http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Demographics/ESRI_Population_World/MapServer" -s="imageSR=3857"*/

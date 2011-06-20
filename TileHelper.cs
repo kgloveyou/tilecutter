@@ -195,7 +195,7 @@ namespace TileCutter
             dict[AGS_BBOX] = bbox;
             dict[AGS_BBOXSR] = "4326";
             dict[AGS_SIZE] = "256,256";
-            dict[AGS_IMAGESR] = "4326";
+            //dict[AGS_IMAGESR] = "4326";
             if (dict != null)
                 builder.Query = dict.ToQueryString();
             return builder.ToString();

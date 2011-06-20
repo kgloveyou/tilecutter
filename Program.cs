@@ -138,47 +138,74 @@ namespace TileCutter
                     //fs.Flush();
                     //fs.Close();
                     //fs.Dispose();
+                    Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
                 }
                 catch (WebException ex)
                 {
                     Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2} - {3}.", tile.Level, tile.Row, tile.Column, ex.Message));
                     return;
                 }
-                using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+                finally { client.Dispose(); }
+
+                try
                 {
-                    connection.Open();
-
-                    var command = connection.CreateCommand();
-                    command.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
-                    command.Parameters.Add(new SQLiteParameter("hash", hash));
-                    object tileObj = command.ExecuteScalar();
-                    int tileid = -1;
-                    if (tileObj != null)
-                        int.TryParse(tileObj.ToString(), out tileid);
-
-                    if (tileid == -1)
+                    using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                     {
-                        tileid = connection.Execute(insertTileImageSqlTemplate, new
+                        connection.Open();
+
+                        //check if the tile for this level, row, column already exists
+                        var cmd = connection.CreateCommand();
+                        cmd.CommandText = "SELECT [tile_id] FROM [map] WHERE [zoom_level] = @zoom AND [tile_row] = @row AND [tile_column] = @col";
+                        cmd.Parameters.Add(new SQLiteParameter("zoom", tile.Level));
+                        cmd.Parameters.Add(new SQLiteParameter("col", tile.Column));
+                        cmd.Parameters.Add(new SQLiteParameter("row", tile.Row));
+                        object tobj = cmd.ExecuteScalar();
+                        int tid = -1;
+                        if (tobj != null)
+                            int.TryParse(tobj.ToString(), out tid);
+                        if (tid != -1)
+                            return;
+
+                        //check if this is a duplicate tile image
+                        cmd.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
+                        cmd.Parameters.Add(new SQLiteParameter("hash", hash));
+                        object tileObj = cmd.ExecuteScalar();
+                        int tileid = -1;
+                        if (tileObj != null)
+                            int.TryParse(tileObj.ToString(), out tileid);
+
+                        if (tileid == -1)
                         {
-                            hash = hash,
-                            data = image
+                            tileid = connection.Execute(insertTileImageSqlTemplate, new
+                            {
+                                hash = hash,
+                                data = image
+                            });
+                        }
+                        connection.Execute(insertTileMapSqlTemplate, new
+                        {
+                            zoom = tile.Level,
+                            col = tile.Column,
+                            row = tile.Row,
+                            id = tileid
                         });
                     }
-                    connection.Execute(insertTileMapSqlTemplate, new 
-                    { 
-                        zoom = tile.Level, 
-                        col = tile.Column, 
-                        row = tile.Row, 
-                        id = tileid });
+                    Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} saved.", tile.Level, tile.Row, tile.Column));
                 }
-                client.Dispose();
-                Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
+                catch (SQLiteException e)
+                {
+                    Console.WriteLine(string.Format("Failed to save tile Level:{0}, Row:{1}, Column:{2}. Error occurred - ", tile.Level, tile.Row, tile.Column, e.Message));
+                    Console.WriteLine(e.ToString());
+                }
+                
             });
 
             using (SQLiteConnection connection = new SQLiteConnection(connectionString))
             {
                 connection.Open();
+                Console.WriteLine("Creating index on table 'map'.");
                 connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
+                Console.WriteLine("Creating view 'tile'.");
                 connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
                 connection.Close();
             }

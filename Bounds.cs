@@ -18,6 +18,12 @@ namespace TileCutter
         public int Row { get; set; }
     }
 
+    public class TileImage
+    {
+        public TileCoordinate Tile { get; set; }
+        public byte[] Image { get; set; }
+    }
+
     public class Bounds<T> where T : struct
     {
         public T XMin { get; set; }

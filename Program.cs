@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Data.SQLite;
 using System.Reflection;
+using System.Collections.Concurrent;
+using System.Data.Common;
+using System.Data;
 
 namespace TileCutter
 {
@@ -25,15 +28,18 @@ namespace TileCutter
             int maxDegreeOfParallelism = 10;
             bool replaceExistingCacheDB = true;
             bool showHelp = false;
+            bool verbose = true;
             string mapServiceType = "osm";
             string settings = string.Empty;
-            ITileUrlSource tileSource = new OSMTileUrlSource() {
+            ITileUrlSource tileSource = new OSMTileUrlSource()
+            {
                 MapServiceUrl = TileHelper.OSM_BASE_URL_TEMPLATE,
             };
 
             var options = new OptionSet()
             {
                 {"h|help=", "Show this message and exits", h => showHelp = h != null},
+                {"v|verbose=", "Display verbose information logs while running", v => verbose = v != null},
                 {"t|type=", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
                 {"m|mapservice=", "Url of the Map Service to be cached", m => mapServiceUrl = m},
                 {"s|settings=", "Extra settings needed by the type of map service being used", s => settings = s},
@@ -55,7 +61,7 @@ namespace TileCutter
                 return;
             }
 
-            if(!string.IsNullOrEmpty(mapServiceType))
+            if (!string.IsNullOrEmpty(mapServiceType))
                 tileSource = GetTileSource(mapServiceType, mapServiceUrl, settings);
 
             //Get the sqlite db file location from the config
@@ -96,7 +102,7 @@ namespace TileCutter
                 if (!rows.Any())
                 {
                     var command = connection.CreateCommand();
-                    command.CommandText = "CREATE TABLE [images] ([tile_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_data] BLOB  NULL, [tile_md5hash] VARCHAR(256)  UNIQUE NOT NULL);";
+                    command.CommandText = "CREATE TABLE [images] ([tile_md5hash] VARCHAR(256) NOT NULL PRIMARY KEY, [tile_data] BLOB  NULL);";
                     command.ExecuteNonQuery();
                     command = connection.CreateCommand();
                     command.CommandText = "CREATE UNIQUE INDEX images_hash on images (tile_md5hash)";
@@ -108,107 +114,162 @@ namespace TileCutter
                 if (!rows.Any())
                 {
                     var command = connection.CreateCommand();
-                    command.CommandText = "CREATE TABLE [map] ([map_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_id] INTEGER  NOT NULL, [zoom_level] INTEGER  NOT NULL, [tile_row] INTEGER  NOT NULL, [tile_column] INTEGER  NOT NULL);";
+                    command.CommandText = "CREATE TABLE [map] ([map_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_md5hash] VARCHAR(256)  NOT NULL, [zoom_level] INTEGER  NOT NULL, [tile_row] INTEGER  NOT NULL, [tile_column] INTEGER  NOT NULL);";
                     command.ExecuteNonQuery();
                 }
             }
-
-            //prepare insert tile image template
-            string insertTileImageSqlTemplate = "INSERT INTO [images]([tile_data], [tile_md5hash]) values(@data, @hash)";
-            //prepare insert tile map template
-            string insertTileMapSqlTemplate = "INSERT INTO map(zoom_level, tile_column, tile_row, tile_id) values(@zoom, @col, @row, @id)";
 
             if (!Directory.Exists(localCacheDirectory))
                 Directory.CreateDirectory(localCacheDirectory);
 
             Console.WriteLine("Output Cache Directory is: " + localCacheDirectory);
+            BlockingCollection<TileImage> images = new BlockingCollection<TileImage>();
             var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
-            ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism};
-            Parallel.ForEach(tiles, parallelOptions, (tile) => {
-                string tileUrl = tileSource.GetTileUrl(tile);
-                byte[] image;
-                string hash;
-                WebClient client = new WebClient();
-                try
+            Task.Factory.StartNew(() =>
+            {
+                ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism / 2 };
+                Parallel.ForEach(tiles, parallelOptions, (tile) =>
                 {
-                    image = client.DownloadData(tileUrl);
-                    hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(image));
-                    //FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
-                    //fs.Write(image, 0, image.Length);
-                    //fs.Flush();
-                    //fs.Close();
-                    //fs.Dispose();
-                    Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
-                }
-                catch (WebException ex)
-                {
-                    Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2} - {3}.", tile.Level, tile.Row, tile.Column, ex.Message));
-                    return;
-                }
-                finally { client.Dispose(); }
-
-                try
-                {
-                    using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+                    string tileUrl = tileSource.GetTileUrl(tile);
+                    WebClient client = new WebClient();
+                    try
                     {
-                        connection.Open();
-
-                        //check if the tile for this level, row, column already exists
-                        var cmd = connection.CreateCommand();
-                        cmd.CommandText = "SELECT [tile_id] FROM [map] WHERE [zoom_level] = @zoom AND [tile_row] = @row AND [tile_column] = @col";
-                        cmd.Parameters.Add(new SQLiteParameter("zoom", tile.Level));
-                        cmd.Parameters.Add(new SQLiteParameter("col", tile.Column));
-                        cmd.Parameters.Add(new SQLiteParameter("row", tile.Row));
-                        object tobj = cmd.ExecuteScalar();
-                        int tid = -1;
-                        if (tobj != null)
-                            int.TryParse(tobj.ToString(), out tid);
-                        if (tid != -1)
-                            return;
-
-                        //check if this is a duplicate tile image
-                        cmd.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
-                        cmd.Parameters.Add(new SQLiteParameter("hash", hash));
-                        object tileObj = cmd.ExecuteScalar();
-                        int tileid = -1;
-                        if (tileObj != null)
-                            int.TryParse(tileObj.ToString(), out tileid);
-
-                        if (tileid == -1)
+                        byte[] image = client.DownloadData(tileUrl);
+                        images.Add(new TileImage()
                         {
-                            tileid = connection.Execute(insertTileImageSqlTemplate, new
-                            {
-                                hash = hash,
-                                data = image
-                            });
-                        }
-                        connection.Execute(insertTileMapSqlTemplate, new
-                        {
-                            zoom = tile.Level,
-                            col = tile.Column,
-                            row = tile.Row,
-                            id = tileid
+                            Tile = tile,
+                            Image = image
                         });
+
+                        //FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
+                        //fs.Write(image, 0, image.Length);
+                        //fs.Flush();
+                        //fs.Close();
+                        //fs.Dispose();
+                        if(verbose)
+                            Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
                     }
-                    Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} saved.", tile.Level, tile.Row, tile.Column));
-                }
-                catch (SQLiteException e)
-                {
-                    Console.WriteLine(string.Format("Failed to save tile Level:{0}, Row:{1}, Column:{2}. Error occurred - ", tile.Level, tile.Row, tile.Column, e.Message));
-                    Console.WriteLine(e.ToString());
-                }
-                
+                    catch (WebException ex)
+                    {
+                        Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2} - {3}.", tile.Level, tile.Row, tile.Column, ex.Message));
+                        return;
+                    }
+                    finally { client.Dispose(); }
+                });
+            }).ContinueWith(t =>
+            {
+                images.CompleteAdding();
             });
 
-            using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+            Action<TileImage[]> processBatch = (batch) => {
+                using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+                {
+                    connection.Open();
+                    using (SQLiteTransaction transaction = connection.BeginTransaction())
+                    using (SQLiteCommand mapCommand = connection.CreateCommand(),
+                        imagesCommand = connection.CreateCommand())
+                    {
+                        //Create a dummy query for the [map] table and fill the adapter with it
+                        //the purpose of this is to get the table structure in a DataTable
+                        //the adapter also builds the insert command for it in when it is populated
+                        mapCommand.CommandText = "SELECT * FROM [map] WHERE 1 = 2";
+                        SQLiteDataAdapter mapAdapter = new SQLiteDataAdapter(mapCommand);
+
+                        //Create a dummy query for the [images] table and fill the adapter with it
+                        //the purpose of this is to get the table structure in a DataTable
+                        //the adapter also builds the insert command for it in when it is populated
+                        imagesCommand.CommandText = "SELECT * FROM [images] WHERE 1 = 2";
+                        SQLiteDataAdapter imagesAdapter = new SQLiteDataAdapter(imagesCommand);
+
+                        using (SQLiteCommandBuilder mapCmdBuilder = new SQLiteCommandBuilder(mapAdapter),
+                            imagesCmdBuilder = new SQLiteCommandBuilder(imagesAdapter))
+                        {
+                            using (imagesAdapter.InsertCommand = (SQLiteCommand)((ICloneable)imagesCmdBuilder.GetInsertCommand()).Clone())
+                            using (mapAdapter.InsertCommand = (SQLiteCommand)((ICloneable)mapCmdBuilder.GetInsertCommand()).Clone())
+                            {
+                                imagesCmdBuilder.DataAdapter = null;
+                                mapCmdBuilder.DataAdapter = null;
+                                using (DataTable mapTable = new DataTable(),
+                                    imagesTable = new DataTable())
+                                {
+                                    imagesAdapter.Fill(imagesTable);
+                                    mapAdapter.Fill(mapTable);
+                                    //Dictionary to eliminate duplicate images within batch
+                                    Dictionary<string, TileImage> added = new Dictionary<string, TileImage>();
+                                    //looping thru keys is safe to do here because
+                                    //the Keys property of concurrentDictionary provides a snapshot of the keys
+                                    //while enumerating
+                                    //the TryGet & TryRemove inside the loop checks for items that were removed by another thread
+                                    foreach (var tileimg in batch)
+                                    {
+                                        string hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(tileimg.Image));
+                                        if (!added.ContainsKey(hash))
+                                        {
+                                            mapCommand.CommandText = "SELECT [tile_md5hash] FROM [images] WHERE [tile_md5hash] = @hash";
+                                            mapCommand.Parameters.Add(new SQLiteParameter("hash", hash));
+                                            object tileObj = mapCommand.ExecuteScalar();
+
+                                            if (tileObj == null)
+                                            {
+                                                DataRow idr = imagesTable.NewRow();
+                                                idr["tile_md5hash"] = hash;
+                                                idr["tile_data"] = tileimg.Image;
+                                                imagesTable.Rows.Add(idr);
+                                            }
+                                            added.Add(hash, tileimg);
+                                        }
+
+                                        DataRow mdr = mapTable.NewRow();
+                                        mdr["zoom_level"] = tileimg.Tile.Level;
+                                        mdr["tile_column"] = tileimg.Tile.Column;
+                                        mdr["tile_row"] = tileimg.Tile.Row;
+                                        mdr["tile_md5hash"] = hash;
+                                        mapTable.Rows.Add(mdr);
+                                    }//for loop thru images
+                                    imagesAdapter.Update(imagesTable);
+                                    mapAdapter.Update(mapTable);
+                                    transaction.Commit();
+                                }//using for datatable
+                            }//using for insert command
+                        }//using for command builder
+                    }//using for select command
+                }//using for connection
+            };
+
+            ConcurrentStack<TileImage> buffer = new ConcurrentStack<TileImage>();
+            Task.Factory.StartNew(() =>
             {
-                connection.Open();
-                Console.WriteLine("Creating index on table 'map'.");
-                connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
-                Console.WriteLine("Creating view 'tile'.");
-                connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
-                connection.Close();
-            }
+                ParallelOptions pOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism / 2 };
+                Parallel.ForEach(images.GetConsumingEnumerable(), pOptions, (tileimage) =>
+                {
+                    buffer.Push(tileimage);
+                    if (buffer.Count < 50)
+                        return;
+                    TileImage[] bufferTileImages = new TileImage[50];
+                    int count = buffer.TryPopRange(bufferTileImages);
+                    if (count == 0)
+                        return;
+                    processBatch(bufferTileImages);
+                });
+            }).ContinueWith(t => {
+                if (buffer.Count == 0)
+                    return;
+                TileImage[] bufferTileImages = new TileImage[buffer.Count];
+                int count = buffer.TryPopRange(bufferTileImages);
+                if (count == 0)
+                    return;
+                processBatch(bufferTileImages);
+            }).ContinueWith(t => {
+                using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+                {
+                    connection.Open();
+                    connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
+                    connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_md5hash = map.tile_md5hash");
+                    connection.Close();
+                }
+            }).Wait();
+
+            
             Console.WriteLine("All Done !!!");
         }
 
@@ -218,12 +279,14 @@ namespace TileCutter
             if (type == "osm")
                 return new OSMTileUrlSource() { MapServiceUrl = mapServiceUrl };
             else if (type == "agsd")
-                return new AGSDynamicTileUrlSource() { 
+                return new AGSDynamicTileUrlSource()
+                {
                     MapServiceUrl = mapServiceUrl,
                     QueryStringValues = settings.ParseQueryString()
                 };
             else if (type == "wms1.1.1")
-                return new WMSTileUrlSource() {
+                return new WMSTileUrlSource()
+                {
                     WMSVersion = TileHelper.WMS_VERSION_1_1_1,
                     MapServiceUrl = mapServiceUrl,
                     QueryStringValues = settings.ParseQueryString()

@@ -17,7 +17,7 @@ namespace TileCutter
     {
         static void Main(string[] args)
         {
-            string localCacheDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string dbLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "tilecache.s3db");
             int minz = 7;
             int maxz = 10;
             double minx = -95.844727;
@@ -43,7 +43,7 @@ namespace TileCutter
                 {"t|type=", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
                 {"m|mapservice=", "Url of the Map Service to be cached", m => mapServiceUrl = m},
                 {"s|settings=", "Extra settings needed by the type of map service being used", s => settings = s},
-                {"o|output=", "Location on disk where the tile cache will be stored", o => localCacheDirectory = o},
+                {"o|output=", "Complete file path and file name where the tile cache needs to be outputted", o => dbLocation = o},
                 {"z|minz=", "Minimum zoom scale at which to begin caching", z => int.TryParse(z, out minz)},
                 {"Z|maxz=", "Maximum zoom scale at which to end caching", Z => int.TryParse(Z, out maxz)},
                 {"x|minx=", "Minimum X coordinate value of the extent to cache", x => double.TryParse(x, out minx)},
@@ -64,9 +64,14 @@ namespace TileCutter
             if (!string.IsNullOrEmpty(mapServiceType))
                 tileSource = GetTileSource(mapServiceType, mapServiceUrl, settings);
 
-            //Get the sqlite db file location from the config
-            //if not provided, default to executing assembly location
-            string dbLocation = Path.Combine(localCacheDirectory, "tilecache.mbtiles");
+            string tileCacheDirectory = Path.GetDirectoryName(dbLocation);
+            string tilecacheFileName = Path.GetFileNameWithoutExtension(dbLocation);
+            if(!Directory.Exists(tileCacheDirectory))
+            {
+                Console.WriteLine("The tilecache path provided is not valid");
+                return;
+            }
+            string errorLogFile = Path.Combine(tileCacheDirectory, tilecacheFileName + ".log");
 
             //if the user option to delete existing tile cache db is true delete it or else add to it
             if (replaceExistingCacheDB && File.Exists(dbLocation))
@@ -119,10 +124,9 @@ namespace TileCutter
                 }
             }
 
-            if (!Directory.Exists(localCacheDirectory))
-                Directory.CreateDirectory(localCacheDirectory);
-
-            Console.WriteLine("Output Cache Directory is: " + localCacheDirectory);
+            FileStream errorLog = File.Create(errorLogFile);
+            StreamWriter errorWriter = new StreamWriter(errorLog);
+            Console.WriteLine("Output Cache file is: " + dbLocation);
             BlockingCollection<TileImage> images = new BlockingCollection<TileImage>();
             var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
             Task.Factory.StartNew(() =>
@@ -151,6 +155,8 @@ namespace TileCutter
                     }
                     catch (WebException ex)
                     {
+                        errorWriter.WriteLine(String.Format("{0},{1},{2} - {3}", tile.Level, tile.Column, tile.Row, ex.Message));
+                        errorLog.Flush();
                         Console.WriteLine(string.Format("Error while downloading tile Level:{0}, Row:{1}, Column:{2} - {3}.", tile.Level, tile.Row, tile.Column, ex.Message));
                         return;
                     }
@@ -159,6 +165,11 @@ namespace TileCutter
             }).ContinueWith(t =>
             {
                 images.CompleteAdding();
+                if (verbose)
+                    Console.WriteLine("All downloads complete.");
+                errorWriter.Dispose();
+                errorLog.Flush();
+                errorLog.Dispose();
             });
 
             int currentTileId = 1;
@@ -234,7 +245,8 @@ namespace TileCutter
                                     imagesAdapter.Update(imagesTable);
                                     mapAdapter.Update(mapTable);
                                     transaction.Commit();
-                                    Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
+                                    if (verbose)
+                                        Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
                                 }//using for datatable
                             }//using for insert command
                         }//using for command builder
@@ -260,12 +272,16 @@ namespace TileCutter
             }).ContinueWith(t => {
                 if (buffer.Count == 0)
                     return;
+                if (verbose)
+                    Console.WriteLine("Saving remaining images that didn't fit into a batch.");
                 TileImage[] bufferTileImages = new TileImage[buffer.Count];
                 int count = buffer.TryPopRange(bufferTileImages);
                 if (count == 0)
                     return;
                 processBatch(bufferTileImages);
             }).ContinueWith(t => {
+                if (verbose)
+                    Console.WriteLine("Creating Index on table [map] and Creating View [tiles].");
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();

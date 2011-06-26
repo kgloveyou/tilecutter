@@ -6,6 +6,6 @@
     </StartWorkingDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <StartArguments>-z=7 -Z=12 -x=-95.844727 -y=35.978006 -X=-88.989258 -Y=40.563895 -o="C:\LocalCache" -t=agsd -m="http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Demographics/ESRI_Population_World/MapServer" -s="imageSR=3857"</StartArguments>
+    <StartArguments>-z=7 -Z=10 -x=-95.844727 -y=35.978006 -X=-88.989258 -Y=40.563895 -o="C:\LocalCache" -t=agsd -m="http://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer" -s="imageSR=3857"</StartArguments>
   </PropertyGroup>
 </Project>

@@ -102,7 +102,7 @@ namespace TileCutter
                 if (!rows.Any())
                 {
                     var command = connection.CreateCommand();
-                    command.CommandText = "CREATE TABLE [images] ([tile_md5hash] VARCHAR(256) NOT NULL PRIMARY KEY, [tile_data] BLOB  NULL);";
+                    command.CommandText = "CREATE TABLE [images] ([tile_id] INTEGER  NOT NULL PRIMARY KEY, [tile_md5hash] VARCHAR(256) NOT NULL, [tile_data] BLOB  NULL);";
                     command.ExecuteNonQuery();
                     command = connection.CreateCommand();
                     command.CommandText = "CREATE UNIQUE INDEX images_hash on images (tile_md5hash)";
@@ -114,7 +114,7 @@ namespace TileCutter
                 if (!rows.Any())
                 {
                     var command = connection.CreateCommand();
-                    command.CommandText = "CREATE TABLE [map] ([map_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_md5hash] VARCHAR(256)  NOT NULL, [zoom_level] INTEGER  NOT NULL, [tile_row] INTEGER  NOT NULL, [tile_column] INTEGER  NOT NULL);";
+                    command.CommandText = "CREATE TABLE [map] ([map_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT, [tile_id] INTEGER  NOT NULL, [zoom_level] INTEGER  NOT NULL, [tile_row] INTEGER  NOT NULL, [tile_column] INTEGER  NOT NULL);";
                     command.ExecuteNonQuery();
                 }
             }
@@ -146,7 +146,7 @@ namespace TileCutter
                         //fs.Flush();
                         //fs.Close();
                         //fs.Dispose();
-                        if(verbose)
+                        if (verbose)
                             Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
                     }
                     catch (WebException ex)
@@ -161,6 +161,7 @@ namespace TileCutter
                 images.CompleteAdding();
             });
 
+            int currentTileId = 1;
             Action<TileImage[]> processBatch = (batch) => {
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
@@ -195,7 +196,7 @@ namespace TileCutter
                                     imagesAdapter.Fill(imagesTable);
                                     mapAdapter.Fill(mapTable);
                                     //Dictionary to eliminate duplicate images within batch
-                                    Dictionary<string, TileImage> added = new Dictionary<string, TileImage>();
+                                    Dictionary<string, int> added = new Dictionary<string, int>();
                                     //looping thru keys is safe to do here because
                                     //the Keys property of concurrentDictionary provides a snapshot of the keys
                                     //while enumerating
@@ -203,32 +204,37 @@ namespace TileCutter
                                     foreach (var tileimg in batch)
                                     {
                                         string hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(tileimg.Image));
+                                        int tileid = -1;
                                         if (!added.ContainsKey(hash))
                                         {
-                                            mapCommand.CommandText = "SELECT [tile_md5hash] FROM [images] WHERE [tile_md5hash] = @hash";
+                                            mapCommand.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
                                             mapCommand.Parameters.Add(new SQLiteParameter("hash", hash));
                                             object tileObj = mapCommand.ExecuteScalar();
-
-                                            if (tileObj == null)
+                                            if (tileObj != null && int.TryParse(tileObj.ToString(), out tileid))
+                                                added.Add(hash, tileid);
+                                            else
                                             {
+                                                tileid = currentTileId++;
+                                                added.Add(hash, tileid);
                                                 DataRow idr = imagesTable.NewRow();
                                                 idr["tile_md5hash"] = hash;
                                                 idr["tile_data"] = tileimg.Image;
+                                                idr["tile_id"] = added[hash];
                                                 imagesTable.Rows.Add(idr);
                                             }
-                                            added.Add(hash, tileimg);
                                         }
 
                                         DataRow mdr = mapTable.NewRow();
                                         mdr["zoom_level"] = tileimg.Tile.Level;
                                         mdr["tile_column"] = tileimg.Tile.Column;
                                         mdr["tile_row"] = tileimg.Tile.Row;
-                                        mdr["tile_md5hash"] = hash;
+                                        mdr["tile_id"] = added[hash];
                                         mapTable.Rows.Add(mdr);
                                     }//for loop thru images
                                     imagesAdapter.Update(imagesTable);
                                     mapAdapter.Update(mapTable);
                                     transaction.Commit();
+                                    Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
                                 }//using for datatable
                             }//using for insert command
                         }//using for command builder
@@ -264,7 +270,7 @@ namespace TileCutter
                 {
                     connection.Open();
                     connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
-                    connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_md5hash = map.tile_md5hash");
+                    connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
                     connection.Close();
                 }
             }).Wait();

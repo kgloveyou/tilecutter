@@ -167,7 +167,6 @@ namespace TileCutter
                 images.CompleteAdding();
                 if (verbose)
                     Console.WriteLine("All downloads complete.");
-                errorWriter.Dispose();
                 errorLog.Flush();
                 errorLog.Dispose();
             });

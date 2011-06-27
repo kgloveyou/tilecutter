@@ -6,6 +6,6 @@
     </StartWorkingDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <StartArguments>-z=7 -Z=10 -x=-95.844727 -y=35.978006 -X=-88.989258 -Y=40.563895 -o="C:\LocalCache\tilecache.s3db" -t=agsd -m="http://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer" -s="imageSR=3857"</StartArguments>
+    <StartArguments>-z=7 -Z=10 -x=-95.844727 -y=35.978006 -X=-88.989258 -Y=40.563895 -o="C:\LocalCache\tilecache.s3db" -t=agsd -m="http://server.arcgisonline.com/ArcGIS/rest/services/I3_Imagery_Prime_World_2D/MapServer" -s="imageSR=3857"</StartArguments>
   </PropertyGroup>
 </Project>

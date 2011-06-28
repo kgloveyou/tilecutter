@@ -29,7 +29,7 @@ namespace TileCutter
             bool replaceExistingCacheDB = true;
             bool showHelp = false;
             bool verbose = true;
-            string mapServiceType = "osm";
+            string mapServiceType = "agsd";
             string settings = string.Empty;
             ITileUrlSource tileSource = new OSMTileUrlSource()
             {
@@ -38,8 +38,8 @@ namespace TileCutter
 
             var options = new OptionSet()
             {
-                {"h|help=", "Show this message and exits", h => showHelp = h != null},
-                {"v|verbose=", "Display verbose information logs while running", v => verbose = v != null},
+                {"h|?|help", "Show this message and exits", h => showHelp = h != null},
+                {"v|verbose", "Display verbose information logs while running", v => verbose = v != null},
                 {"t|type=", "Type of the map service to be cached", t => mapServiceType = t.ToLower()},
                 {"m|mapservice=", "Url of the Map Service to be cached", m => mapServiceUrl = m},
                 {"s|settings=", "Extra settings needed by the type of map service being used", s => settings = s},

@@ -66,7 +66,7 @@ namespace TileCutter
 
             string tileCacheDirectory = Path.GetDirectoryName(dbLocation);
             string tilecacheFileName = Path.GetFileNameWithoutExtension(dbLocation);
-            if(!Directory.Exists(tileCacheDirectory))
+            if (!Directory.Exists(tileCacheDirectory))
             {
                 Console.WriteLine("The tilecache path provided is not valid");
                 return;
@@ -145,11 +145,6 @@ namespace TileCutter
                             Image = image
                         });
 
-                        //FileStream fs = File.Create(Path.Combine(localCacheDirectory, tile.Level.ToString() + "_" + tile.Column.ToString() + "_" + tile.Row.ToString() + ".png"));
-                        //fs.Write(image, 0, image.Length);
-                        //fs.Flush();
-                        //fs.Close();
-                        //fs.Dispose();
                         if (verbose)
                             Console.WriteLine(string.Format("Tile Level:{0}, Row:{1}, Column:{2} downloaded.", tile.Level, tile.Row, tile.Column));
                     }
@@ -172,84 +167,100 @@ namespace TileCutter
             });
 
             int currentTileId = 1;
-            Action<TileImage[]> processBatch = (batch) => {
+            Action<TileImage[]> processBatch = (batch) =>
+            {
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();
                     using (SQLiteTransaction transaction = connection.BeginTransaction())
-                    using (SQLiteCommand mapCommand = connection.CreateCommand(),
-                        imagesCommand = connection.CreateCommand())
                     {
-                        //Create a dummy query for the [map] table and fill the adapter with it
-                        //the purpose of this is to get the table structure in a DataTable
-                        //the adapter also builds the insert command for it in when it is populated
-                        mapCommand.CommandText = "SELECT * FROM [map] WHERE 1 = 2";
-                        SQLiteDataAdapter mapAdapter = new SQLiteDataAdapter(mapCommand);
-
-                        //Create a dummy query for the [images] table and fill the adapter with it
-                        //the purpose of this is to get the table structure in a DataTable
-                        //the adapter also builds the insert command for it in when it is populated
-                        imagesCommand.CommandText = "SELECT * FROM [images] WHERE 1 = 2";
-                        SQLiteDataAdapter imagesAdapter = new SQLiteDataAdapter(imagesCommand);
-
-                        using (SQLiteCommandBuilder mapCmdBuilder = new SQLiteCommandBuilder(mapAdapter),
-                            imagesCmdBuilder = new SQLiteCommandBuilder(imagesAdapter))
+                        using (SQLiteCommand mapCommand = connection.CreateCommand(),
+                            imagesCommand = connection.CreateCommand(), tileCountCommand = connection.CreateCommand(),
+                            mapDeleteCommand = connection.CreateCommand())
                         {
-                            using (imagesAdapter.InsertCommand = (SQLiteCommand)((ICloneable)imagesCmdBuilder.GetInsertCommand()).Clone())
-                            using (mapAdapter.InsertCommand = (SQLiteCommand)((ICloneable)mapCmdBuilder.GetInsertCommand()).Clone())
-                            {
-                                imagesCmdBuilder.DataAdapter = null;
-                                mapCmdBuilder.DataAdapter = null;
-                                using (DataTable mapTable = new DataTable(),
-                                    imagesTable = new DataTable())
-                                {
-                                    imagesAdapter.Fill(imagesTable);
-                                    mapAdapter.Fill(mapTable);
-                                    //Dictionary to eliminate duplicate images within batch
-                                    Dictionary<string, int> added = new Dictionary<string, int>();
-                                    //looping thru keys is safe to do here because
-                                    //the Keys property of concurrentDictionary provides a snapshot of the keys
-                                    //while enumerating
-                                    //the TryGet & TryRemove inside the loop checks for items that were removed by another thread
-                                    foreach (var tileimg in batch)
-                                    {
-                                        string hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(tileimg.Image));
-                                        int tileid = -1;
-                                        if (!added.ContainsKey(hash))
-                                        {
-                                            mapCommand.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
-                                            mapCommand.Parameters.Add(new SQLiteParameter("hash", hash));
-                                            object tileObj = mapCommand.ExecuteScalar();
-                                            if (tileObj != null && int.TryParse(tileObj.ToString(), out tileid))
-                                                added.Add(hash, tileid);
-                                            else
-                                            {
-                                                tileid = currentTileId++;
-                                                added.Add(hash, tileid);
-                                                DataRow idr = imagesTable.NewRow();
-                                                idr["tile_md5hash"] = hash;
-                                                idr["tile_data"] = tileimg.Image;
-                                                idr["tile_id"] = added[hash];
-                                                imagesTable.Rows.Add(idr);
-                                            }
-                                        }
+                            tileCountCommand.CommandText = "select ifnull(max(tile_id), 1) from images";
+                            var tileCountObj = tileCountCommand.ExecuteScalar();
+                            if (tileCountObj != null)
+                                int.TryParse(tileCountObj.ToString(), out currentTileId);
+                            //Create a dummy query for the [map] table and fill the adapter with it
+                            //the purpose of this is to get the table structure in a DataTable
+                            //the adapter also builds the insert command for it in when it is populated
+                            mapCommand.CommandText = "SELECT * FROM [map] WHERE 1 = 2";
+                            SQLiteDataAdapter mapAdapter = new SQLiteDataAdapter(mapCommand);
 
-                                        DataRow mdr = mapTable.NewRow();
-                                        mdr["zoom_level"] = tileimg.Tile.Level;
-                                        mdr["tile_column"] = tileimg.Tile.Column;
-                                        mdr["tile_row"] = tileimg.Tile.Row;
-                                        mdr["tile_id"] = added[hash];
-                                        mapTable.Rows.Add(mdr);
-                                    }//for loop thru images
-                                    imagesAdapter.Update(imagesTable);
-                                    mapAdapter.Update(mapTable);
-                                    transaction.Commit();
-                                    if (verbose)
-                                        Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
-                                }//using for datatable
-                            }//using for insert command
-                        }//using for command builder
-                    }//using for select command
+                            //Create a dummy query for the [images] table and fill the adapter with it
+                            //the purpose of this is to get the table structure in a DataTable
+                            //the adapter also builds the insert command for it in when it is populated
+                            imagesCommand.CommandText = "SELECT * FROM [images] WHERE 1 = 2";
+                            SQLiteDataAdapter imagesAdapter = new SQLiteDataAdapter(imagesCommand);
+
+                            using (SQLiteCommandBuilder mapCmdBuilder = new SQLiteCommandBuilder(mapAdapter),
+                                imagesCmdBuilder = new SQLiteCommandBuilder(imagesAdapter))
+                            {
+                                using (imagesAdapter.InsertCommand = (SQLiteCommand)((ICloneable)imagesCmdBuilder.GetInsertCommand()).Clone())
+                                using (mapAdapter.InsertCommand = (SQLiteCommand)((ICloneable)mapCmdBuilder.GetInsertCommand()).Clone())
+                                {
+                                    imagesCmdBuilder.DataAdapter = null;
+                                    mapCmdBuilder.DataAdapter = null;
+                                    using (DataTable mapTable = new DataTable(),
+                                        imagesTable = new DataTable())
+                                    {
+                                        imagesAdapter.Fill(imagesTable);
+                                        mapAdapter.Fill(mapTable);
+                                        //Dictionary to eliminate duplicate images within batch
+                                        Dictionary<string, int> added = new Dictionary<string, int>();
+                                        //looping thru keys is safe to do here because
+                                        //the Keys property of concurrentDictionary provides a snapshot of the keys
+                                        //while enumerating
+                                        //the TryGet & TryRemove inside the loop checks for items that were removed by another thread
+                                        List<int> tileIdsInCurrentBatch = new List<int>();
+                                        foreach (var tileimg in batch)
+                                        {
+                                            string hash = Convert.ToBase64String(new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(tileimg.Image));
+                                            int tileid = -1;
+                                            if (!added.ContainsKey(hash))
+                                            {
+                                                mapCommand.CommandText = "SELECT [tile_id] FROM [images] WHERE [tile_md5hash] = @hash";
+                                                mapCommand.Parameters.Add(new SQLiteParameter("hash", hash));
+                                                object tileObj = mapCommand.ExecuteScalar();
+                                                if (tileObj != null && int.TryParse(tileObj.ToString(), out tileid))
+                                                    added.Add(hash, tileid);
+                                                else
+                                                {
+                                                    tileid = currentTileId++;
+                                                    added.Add(hash, tileid);
+                                                    DataRow idr = imagesTable.NewRow();
+                                                    idr["tile_md5hash"] = hash;
+                                                    idr["tile_data"] = tileimg.Image;
+                                                    idr["tile_id"] = added[hash];
+                                                    imagesTable.Rows.Add(idr);
+                                                }
+                                            }
+
+                                            tileIdsInCurrentBatch.Add(added[hash]);
+
+                                            DataRow mdr = mapTable.NewRow();
+                                            mdr["zoom_level"] = tileimg.Tile.Level;
+                                            mdr["tile_column"] = tileimg.Tile.Column;
+                                            mdr["tile_row"] = tileimg.Tile.Row;
+                                            mdr["tile_id"] = added[hash];
+                                            mapTable.Rows.Add(mdr);
+                                        }//for loop thru images
+
+                                        mapDeleteCommand.CommandText = string.Format("delete from map where tile_id in ({0})", string.Join(",", tileIdsInCurrentBatch));
+                                        mapDeleteCommand.ExecuteNonQuery();
+                                        tileIdsInCurrentBatch.Clear();
+
+                                        imagesAdapter.Update(imagesTable);
+                                        mapAdapter.Update(mapTable);
+                                        transaction.Commit();
+                                        if (verbose)
+                                            Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
+                                    }//using for datatable
+                                }//using for insert command
+                            }//using for command builder
+                        }//using for select command
+                    }
                 }//using for connection
             };
 
@@ -268,7 +279,8 @@ namespace TileCutter
                         return;
                     processBatch(bufferTileImages);
                 });
-            }).ContinueWith(t => {
+            }).ContinueWith(t =>
+            {
                 if (buffer.Count == 0)
                     return;
                 if (verbose)
@@ -278,19 +290,20 @@ namespace TileCutter
                 if (count == 0)
                     return;
                 processBatch(bufferTileImages);
-            }).ContinueWith(t => {
+            }).ContinueWith(t =>
+            {
                 if (verbose)
                     Console.WriteLine("Creating Index on table [map] and Creating View [tiles].");
                 using (SQLiteConnection connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();
-                    connection.Execute("CREATE UNIQUE INDEX map_index on map (zoom_level, tile_column, tile_row)");
-                    connection.Execute("CREATE VIEW tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
+                    connection.Execute("CREATE UNIQUE INDEX IF NOT EXISTS map_index on map (zoom_level, tile_column, tile_row)");
+                    connection.Execute("CREATE VIEW IF NOT EXISTS tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
                     connection.Close();
                 }
             }).Wait();
 
-            
+
             Console.WriteLine("All Done !!!");
         }
 

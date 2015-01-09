@@ -181,7 +181,10 @@ namespace TileCutter
                             tileCountCommand.CommandText = "select ifnull(max(tile_id), 1) from images";
                             var tileCountObj = tileCountCommand.ExecuteScalar();
                             if (tileCountObj != null)
+                            {
                                 int.TryParse(tileCountObj.ToString(), out currentTileId);
+                                currentTileId++;
+                            }
                             //Create a dummy query for the [map] table and fill the adapter with it
                             //the purpose of this is to get the table structure in a DataTable
                             //the adapter also builds the insert command for it in when it is populated
@@ -251,9 +254,16 @@ namespace TileCutter
                                         mapDeleteCommand.ExecuteNonQuery();
                                         tileIdsInCurrentBatch.Clear();
 
-                                        imagesAdapter.Update(imagesTable);
-                                        mapAdapter.Update(mapTable);
-                                        transaction.Commit();
+                                        try
+                                        {
+                                            imagesAdapter.Update(imagesTable);
+                                            mapAdapter.Update(mapTable);
+                                            transaction.Commit();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Console.WriteLine("An unexpected error occurred while saving to the sqlite database. - {0}", ex.Message);
+                                        }
                                         if (verbose)
                                             Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
                                     }//using for datatable

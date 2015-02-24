@@ -31,6 +31,7 @@ namespace TileCutter
             bool verbose = true;
             string mapServiceType = "agsd";
             string settings = string.Empty;
+            bool showInfo = false;
             ITileUrlSource tileSource = new OSMTileUrlSource()
             {
                 MapServiceUrl = TileHelper.OSM_BASE_URL_TEMPLATE,
@@ -51,13 +52,33 @@ namespace TileCutter
                 {"X|maxx=", "Maximum X coordinate value of the extent to cache", X => double.TryParse(X, out maxx)},
                 {"Y|maxy=", "Maximum Y coordinate value of the extent to cache", Y => double.TryParse(Y, out maxy)},
                 {"p|parallelops=", "Limits the number of concurrent operations run by TileCutter", p => int.TryParse(p, out maxDegreeOfParallelism)},
-                {"r|replace=", "Delete existing tile cache MBTiles database if already present and create a new one.", r => Boolean.TryParse(r, out replaceExistingCacheDB)}
+                {"r|replace=", "Delete existing tile cache MBTiles database if already present and create a new one.", r => Boolean.TryParse(r, out replaceExistingCacheDB)},
+                {"i|info=", "", i => showInfo = i != null}
             };
             options.Parse(args);
 
             if (showHelp)
             {
                 ShowHelp(options);
+                return;
+            }
+
+            var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
+
+            if (showInfo)
+            {
+                var zoomLevels = Enumerable.Range(0, 21);
+                var tileCountByZoomLevel = new Dictionary<int, int>();
+                foreach (var level in zoomLevels)
+                    tileCountByZoomLevel[level] = 0;
+                foreach (var tile in tiles)
+                    tileCountByZoomLevel[tile.Level]++;
+
+                foreach (var item in tileCountByZoomLevel)
+                    if (item.Value > 0)
+                        Console.WriteLine(string.Format("Zoom level {0} - {1} tiles", item.Key, item.Value));
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
                 return;
             }
 
@@ -128,10 +149,9 @@ namespace TileCutter
             StreamWriter errorWriter = new StreamWriter(errorLog);
             Console.WriteLine("Output Cache file is: " + dbLocation);
             BlockingCollection<TileImage> images = new BlockingCollection<TileImage>();
-            var tiles = GetTiles(minz, maxz, minx, miny, maxx, maxy);
             Task.Factory.StartNew(() =>
             {
-                ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism / 2 };
+                ParallelOptions parallelOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism };
                 Parallel.ForEach(tiles, parallelOptions, (tile) =>
                 {
                     string tileUrl = tileSource.GetTileUrl(tile);
@@ -277,7 +297,7 @@ namespace TileCutter
             ConcurrentStack<TileImage> buffer = new ConcurrentStack<TileImage>();
             Task.Factory.StartNew(() =>
             {
-                ParallelOptions pOptions = new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism / 2 };
+                ParallelOptions pOptions = new ParallelOptions() { MaxDegreeOfParallelism = 1 };
                 Parallel.ForEach(images.GetConsumingEnumerable(), pOptions, (tileimage) =>
                 {
                     buffer.Push(tileimage);

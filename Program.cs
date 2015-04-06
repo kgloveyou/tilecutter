@@ -28,7 +28,7 @@ namespace TileCutter
             int maxDegreeOfParallelism = 10;
             bool replaceExistingCacheDB = true;
             bool showHelp = false;
-            bool verbose = true;
+            bool verbose = false;
             string mapServiceType = "agsd";
             string settings = string.Empty;
             bool showInfo = false;
@@ -196,7 +196,8 @@ namespace TileCutter
                     {
                         using (SQLiteCommand mapCommand = connection.CreateCommand(),
                             imagesCommand = connection.CreateCommand(), tileCountCommand = connection.CreateCommand(),
-                            mapDeleteCommand = connection.CreateCommand())
+                            mapDeleteCommand = connection.CreateCommand(),
+                            imageDeleteCommand = connection.CreateCommand())
                         {
                             tileCountCommand.CommandText = "select ifnull(max(tile_id), 1) from images";
                             var tileCountObj = tileCountCommand.ExecuteScalar();
@@ -228,6 +229,19 @@ namespace TileCutter
                                     using (DataTable mapTable = new DataTable(),
                                         imagesTable = new DataTable())
                                     {
+                                        if (batch.Any())
+                                        {
+                                            var conditions = batch.Select(b => string.Format("([zoom_level]={0} and [tile_row]={1} and [tile_column]={2})", b.Tile.Level, b.Tile.Row, b.Tile.Column));
+                                            var whereClause = string.Join("or", conditions);
+                                            var mapDeleteStatement = string.Format("delete from map where {0}", whereClause);
+                                            var imageDeleteStatement = string.Format("delete from images where [tile_id] in (select [tile_id] from map where {0})", whereClause);
+
+                                            imageDeleteCommand.CommandText = imageDeleteStatement;
+                                            imageDeleteCommand.ExecuteNonQuery();
+                                            mapDeleteCommand.CommandText = mapDeleteStatement;
+                                            mapDeleteCommand.ExecuteNonQuery();
+                                        }
+
                                         imagesAdapter.Fill(imagesTable);
                                         mapAdapter.Fill(mapTable);
                                         //Dictionary to eliminate duplicate images within batch
@@ -270,20 +284,12 @@ namespace TileCutter
                                             mapTable.Rows.Add(mdr);
                                         }//for loop thru images
 
-                                        mapDeleteCommand.CommandText = string.Format("delete from map where tile_id in ({0})", string.Join(",", tileIdsInCurrentBatch));
-                                        mapDeleteCommand.ExecuteNonQuery();
                                         tileIdsInCurrentBatch.Clear();
 
-                                        try
-                                        {
-                                            imagesAdapter.Update(imagesTable);
-                                            mapAdapter.Update(mapTable);
-                                            transaction.Commit();
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Console.WriteLine("An unexpected error occurred while saving to the sqlite database. - {0}", ex.Message);
-                                        }
+                                        imagesAdapter.Update(imagesTable);
+                                        mapAdapter.Update(mapTable);
+                                        transaction.Commit();
+
                                         if (verbose)
                                             Console.WriteLine(String.Format("Saving an image batch of {0}.", batch.Length));
                                     }//using for datatable
@@ -294,45 +300,31 @@ namespace TileCutter
                 }//using for connection
             };
 
-            ConcurrentStack<TileImage> buffer = new ConcurrentStack<TileImage>();
-            Task.Factory.StartNew(() =>
+            List<TileImage> tilebatch = new List<TileImage>();
+            foreach (var tileImage in images.GetConsumingEnumerable())
             {
-                ParallelOptions pOptions = new ParallelOptions() { MaxDegreeOfParallelism = 1 };
-                Parallel.ForEach(images.GetConsumingEnumerable(), pOptions, (tileimage) =>
-                {
-                    buffer.Push(tileimage);
-                    if (buffer.Count < 50)
-                        return;
-                    TileImage[] bufferTileImages = new TileImage[50];
-                    int count = buffer.TryPopRange(bufferTileImages);
-                    if (count == 0)
-                        return;
-                    processBatch(bufferTileImages);
-                });
-            }).ContinueWith(t =>
-            {
-                if (buffer.Count == 0)
-                    return;
-                if (verbose)
-                    Console.WriteLine("Saving remaining images that didn't fit into a batch.");
-                TileImage[] bufferTileImages = new TileImage[buffer.Count];
-                int count = buffer.TryPopRange(bufferTileImages);
-                if (count == 0)
-                    return;
-                processBatch(bufferTileImages);
-            }).ContinueWith(t =>
-            {
-                if (verbose)
-                    Console.WriteLine("Creating Index on table [map] and Creating View [tiles].");
-                using (SQLiteConnection connection = new SQLiteConnection(connectionString))
-                {
-                    connection.Open();
-                    connection.Execute("CREATE UNIQUE INDEX IF NOT EXISTS map_index on map (zoom_level, tile_column, tile_row)");
-                    connection.Execute("CREATE VIEW IF NOT EXISTS tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
-                    connection.Close();
-                }
-            }).Wait();
+                tilebatch.Add(tileImage);
+                if (tilebatch.Count < 50)
+                    continue;
+                processBatch(tilebatch.ToArray());
+                tilebatch.Clear();
+            }
 
+            if (verbose)
+                Console.WriteLine("Saving remaining images that didn't fit into a batch.");
+
+            processBatch(tilebatch.ToArray());
+            tilebatch.Clear();
+
+            if (verbose)
+                Console.WriteLine("Creating Index on table [map] and Creating View [tiles].");
+            using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+            {
+                connection.Open();
+                connection.Execute("CREATE UNIQUE INDEX IF NOT EXISTS map_index on map (zoom_level, tile_column, tile_row)");
+                connection.Execute("CREATE VIEW IF NOT EXISTS tiles as SELECT map.zoom_level as zoom_level, map.tile_column as tile_column, map.tile_row as tile_row, images.tile_data as tile_data FROM map JOIN images on images.tile_id = map.tile_id");
+                connection.Close();
+            }
 
             Console.WriteLine("All Done !!!");
         }
